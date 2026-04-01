@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import pandas as pd
 
 # ============================================================================
 # KONFIGURASI HALAMAN
@@ -296,7 +297,8 @@ for i in range(len(layers) - 1):
     })
 
 # Display table
-phase_df = st.DataFrame(phase_info_data)
+phase_df = pd.DataFrame(phase_info_data)
+st.dataframe(phase_df, use_container_width=True, hide_index=True)
 
 # Card Container untuk Perhitungan
 st.markdown("""
