@@ -7,7 +7,7 @@ import pandas as pd
 # ============================================================================
 # KONFIGURASI HALAMAN
 # ============================================================================
-st.set_page_config
+st.set_page_config(
     page_title="Simulasi Interferensi Selaput Tipis",
     page_icon="🔬",
     layout="wide"
