@@ -232,12 +232,13 @@ thicknesses = []
 for i in range(num_layers - 1):  # Layer terakhir adalah substrate, tidak perlu ketebalan
     thickness = st.sidebar.number_input(
         f"Ketebalan Layer {i+1}",
-        min_value=0.0001,
+        min_value=0.0,  # ✅ Bisa 0 mm (terbuka bebas)
         max_value=10.0,
         value=0.001,
         step=0.0001,
         format="%.4f",
-        key=f"thickness_{i}"
+        key=f"thickness_{i}",
+        help="0 mm = terbuka bebas di alam"
     )
     thicknesses.append(thickness)
 
@@ -267,7 +268,7 @@ theta_incident = st.sidebar.slider(
 st.sidebar.markdown("### 🔍 Mode Kalkulasi")
 calculation_mode = st.sidebar.radio(
     "Pilih Mode",
-    options=["Manual", "Optimal Thickness"],
+    options=["Manual", "Ketebalan Optimal"],
     help="Manual: gunakan ketebalan yang ditentukan\nOptimal: hitung ketebalan untuk minimizing reflection"
 )
 
@@ -353,10 +354,11 @@ if calculation_mode == "Optimal Thickness":
         st.markdown(f"""
         **Ketebalan Optimal untuk λ = {wavelength} nm:**
         
-        $$d_{{optimal}} = \\frac{{\\lambda}}{{4n_{{film}}}} = \\frac{{{wavelength}}}{{4 \\times {n_film}}} = {d_optimal:.6f} \\text{ mm}$$
+        $$d_{{\\text{{optimal}}}} = \\frac{{\\lambda}}{{4n_{{\\text{{film}}}}}} = \\frac{{{wavelength}}}{{4 \\times {n_film:.2f}}} = {d_optimal:.6f} \\text{{ mm}}$$
         
         **Kondisi untuk Minimum Reflection:**
-        $$n_{{film}} = \\sqrt{{n_{{air}} \\times n_{{substrate}}}} = \\sqrt{{1.00 \\times {n_substrate}}} = {np.sqrt(n_substrate):.4f}$$
+        
+        $$n_{{\\text{{film}}}} = \\sqrt{{n_{{\\text{{air}}}} \\times n_{{\\text{{substrate}}}}}} = \\sqrt{{1.00 \\times {n_substrate:.2f}}} = {np.sqrt(n_substrate):.4f}$$
         """)
         
         # Update thicknesses dengan nilai optimal
@@ -385,6 +387,34 @@ for wl in wavelength_range:
     absorbance_values.append(A)
 
 # Plot kurva
+if calculation_mode == "Manual":
+    # Diagram Batang untuk Mode Manual
+    fig = go.Figure()
+    
+    # Ambil nilai pada wavelength yang dipilih
+    idx = np.argmin(np.abs(wavelength_range - wavelength))
+    T_val = transmittance_values[idx]
+    R_val = reflectance_values[idx]
+    A_val = absorbance_values[idx]
+    
+    fig.add_trace(go.Bar(
+        x=['Transmitansi (T)', 'Reflektansi (R)', 'Absorbansi (A)'],
+        y=[T_val, R_val, A_val],
+        marker_color=['green', 'red', 'blue'],
+        text=[f'{T_val:.4f}', f'{R_val:.4f}', f'{A_val:.4f}'],
+        textposition='outside'
+    ))
+    
+    fig.update_layout(
+        height=500,
+        xaxis_title="Parameter",
+        yaxis_title="Intensitas Relatif",
+        yaxis_range=[0, 1.1],
+        template='plotly_white',
+        title=f"Intensitas pada λ = {wavelength} nm"
+    )
+else:
+# Line Chart untuk Mode Optimal Thickness
 fig = make_subplots(rows=1, cols=1, subplot_titles=('Kurva Transmitansi, Reflektansi, dan Absorbansi'))
 
 fig.add_trace(
@@ -416,8 +446,6 @@ fig.update_layout(
 
 fig.update_xaxes(range=[200, 1100])
 fig.update_yaxes(range=[0, 1.1])
-
-st.plotly_chart(fig, use_container_width=True)
 
 # Informasi pada panjang gelombang yang dipilih
 st.markdown("### 📍 Hasil pada Panjang Gelombang Terpilih")
