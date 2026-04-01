@@ -649,8 +649,9 @@ st.plotly_chart(fig, use_container_width=True)
 # Informasi pada panjang gelombang yang dipilih
 st.markdown("### 📍 Hasil pada Panjang Gelombang Terpilih")
 
-T_current = calculate_transmittance(layers, thicknesses_to_use, wavelength, theta_incident)
-R_current = calculate_reflection_coefficient(layers[0], layers[-1], theta_incident)
+T_current, R_current = calculate_transmittance_reflectance_multilayer(
+    layers, thicknesses_to_use, wavelength, theta_incident
+)
 A_current = calculate_absorbance(T_current, R_current)
 
 col1, col2, col3 = st.columns(3)
