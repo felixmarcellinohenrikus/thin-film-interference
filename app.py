@@ -217,17 +217,18 @@ def calculate_transmittance(layers, thicknesses, wavelength, theta_incident):
 def calculate_optimal_thickness(n_film, n_substrate, wavelength, theta_incident=0):
     """
     Menghitung ketebalan optimal untuk minimizing reflection (anti-reflection coating)
+    Returns: ketebalan dalam satuan mm
     """
-    # Untuk single layer AR coating
-    # n_film = sqrt(n_air * n_substrate)
-    # d = lambda / (4 * n_film)
-    
     theta_rad = np.radians(theta_incident)
     
     # Ketebalan optimal untuk destructive interference
-    d_optimal = wavelength / (4 * n_film * np.cos(theta_rad))
+    # d = λ/(4n) - hasil dalam nm karena wavelength dalam nm
+    d_optimal_nm = wavelength / (4 * n_film * np.cos(theta_rad))
     
-    return d_optimal * 1e6  # Konversi ke mm
+    # Konversi nm ke mm: 1 nm = 10^-6 mm
+    d_optimal_mm = d_optimal_nm * 1e-6
+    
+    return d_optimal_mm
 
 def calculate_absorbance(transmittance, reflectance):
     """
@@ -401,21 +402,26 @@ if calculation_mode == "Optimal Thickness":
         # Hitung ketebalan optimal untuk panjang gelombang yang dipilih
         d_optimal = calculate_optimal_thickness(n_film, n_substrate, wavelength, theta_incident)
         
-        # Update ketebalan layer film dengan nilai optimal
-        thicknesses = [0.0, d_optimal]  # Layer 1 = 0 (terbuka), Layer 2 = optimal
+        # ✅ FIX: Update thicknesses dengan benar
+        # Layer 1 (udara) = 0 mm (terbuka)
+        # Layer 2 (film) = d_optimal
+        thicknesses_optimal = [0.0, d_optimal]
+        
+        # Konversi ke nm untuk display yang lebih mudah dibaca
+        d_optimal_nm = d_optimal * 1e6  # mm ke nm
         
         st.markdown(f"""
         ### Konfigurasi 3 Layer:
         
-        | Layer | Medium | Indeks Bias (n) | Ketebalan (mm) |
-        |-------|--------|-----------------|----------------|
-        | 1 | {list(MEDIUM_DATABASE.keys())[list(MEDIUM_DATABASE.values()).index(n_air)]} | {n_air:.2f} | 0.0000 (terbuka) |
-        | 2 | {list(MEDIUM_DATABASE.keys())[list(MEDIUM_DATABASE.values()).index(n_film)]} | {n_film:.2f} | {d_optimal:.6f} (optimal) |
+        | Layer | Medium | Indeks Bias (n) | Ketebalan |
+        |-------|--------|-----------------|-----------|
+        | 1 | {list(MEDIUM_DATABASE.keys())[list(MEDIUM_DATABASE.values()).index(n_air)]} | {n_air:.2f} | 0.0000 mm (terbuka) |
+        | 2 | {list(MEDIUM_DATABASE.keys())[list(MEDIUM_DATABASE.values()).index(n_film)]} | {n_film:.2f} | {d_optimal:.6f} mm ({d_optimal_nm:.2f} nm) |
         | 3 | {list(MEDIUM_DATABASE.keys())[list(MEDIUM_DATABASE.values()).index(n_substrate)]} | {n_substrate:.2f} | ∞ (substrat) |
         
         ### Perhitungan Ketebalan Optimal:
         
-        $$d_{{\\text{{optimal}}}} = \\frac{{\\lambda}}{{4n_{{\\text{{film}}}}}} = \\frac{{{wavelength}}}{{4 \\times {n_film:.2f}}} = {d_optimal:.6f} \\text{{ mm}}$$
+        $$d_{{\\text{{optimal}}}} = \\frac{{\\lambda}}{{4n_{{\\text{{film}}}}}} = \\frac{{{wavelength} \\text{{ nm}}}}{{4 \\times {n_film:.2f}}} = {d_optimal_nm:.2f} \\text{{ nm}} = {d_optimal:.6f} \\text{{ mm}}$$
         
         ### Kondisi Ideal Anti-Reflection Coating:
         
@@ -425,9 +431,13 @@ if calculation_mode == "Optimal Thickness":
         **Indeks bias ideal:** {np.sqrt(n_air * n_substrate):.4f}  
         **Status:** {'✅ Optimal' if abs(n_film - np.sqrt(n_air * n_substrate)) < 0.05 else '⚠️ Tidak Ideal (pilih MgF₂ untuk hasil terbaik)'}
         """)
+        
+        # ✅ Gunakan thicknesses_optimal untuk kalkulasi
+        thicknesses_to_use = thicknesses_optimal
     else:
         st.error("❌ Mode Optimal Thickness memerlukan tepat **3 layer**!")
         st.info("Silakan ubah jumlah layer menjadi 3 di sidebar.")
+        thicknesses_to_use = thicknesses
 
 # ============================================================================
 # PLOT HASIL SIMULASI (Revisi untuk Optimal Thickness)
@@ -438,6 +448,15 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+if calculation_mode == "Optimal Thickness" and len(layers) == 3:
+    # Hitung ulang d_optimal untuk digunakan di plot
+    n_film = layers[1]
+    n_substrate = layers[2]
+    d_optimal = calculate_optimal_thickness(n_film, n_substrate, wavelength, theta_incident)
+    thicknesses_to_use = [0.0, d_optimal]
+else:
+    thicknesses_to_use = thicknesses
+
 # Kalkulasi Transmitansi dan Reflektansi
 wavelength_range = np.linspace(200, 1100, 200)
 transmittance_values = []
@@ -445,7 +464,7 @@ reflectance_values = []
 absorbance_values = []
 
 for wl in wavelength_range:
-    T = calculate_transmittance(layers, thicknesses, wl, theta_incident)
+    T = calculate_transmittance(layers, thicknesses_to_use, wl, theta_incident)
     R = calculate_reflection_coefficient(layers[0], layers[-1], theta_incident)
     A = calculate_absorbance(T, R)
     
@@ -453,7 +472,6 @@ for wl in wavelength_range:
     reflectance_values.append(R)
     absorbance_values.append(A)
 
-# ✅ REVISI: Plot berbeda untuk Manual vs Optimal
 if calculation_mode == "Manual":
     # Diagram Batang untuk Mode Manual
     fig = go.Figure()
@@ -534,7 +552,7 @@ st.plotly_chart(fig, use_container_width=True)
 # Informasi pada panjang gelombang yang dipilih
 st.markdown("### 📍 Hasil pada Panjang Gelombang Terpilih")
 
-T_current = calculate_transmittance(layers, thicknesses, wavelength, theta_incident)
+T_current = calculate_transmittance(layers, thicknesses_to_use, wavelength, theta_incident)
 R_current = calculate_reflection_coefficient(layers[0], layers[-1], theta_incident)
 A_current = calculate_absorbance(T_current, R_current)
 
