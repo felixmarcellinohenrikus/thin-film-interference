@@ -414,38 +414,38 @@ if calculation_mode == "Manual":
         title=f"Intensitas pada λ = {wavelength} nm"
     )
 else:
-# Line Chart untuk Mode Optimal Thickness
-fig = make_subplots(rows=1, cols=1, subplot_titles=('Kurva Transmitansi, Reflektansi, dan Absorbansi'))
-
-fig.add_trace(
-    go.Scatter(x=wavelength_range, y=transmittance_values, name='Transmitansi (T)', 
-               line=dict(color='green', width=3)),
-    row=1, col=1
-)
-
-fig.add_trace(
-    go.Scatter(x=wavelength_range, y=reflectance_values, name='Reflektansi (R)', 
-               line=dict(color='red', width=3)),
-    row=1, col=1
-)
-
-fig.add_trace(
-    go.Scatter(x=wavelength_range, y=absorbance_values, name='Absorbansi (A)', 
-               line=dict(color='blue', width=3)),
-    row=1, col=1
-)
-
-fig.update_layout(
-    height=600,
-    xaxis_title="Panjang Gelombang (nm)",
-    yaxis_title="Intensitas Relatif",
-    hovermode='x unified',
-    showlegend=True,
-    template='plotly_white'
-)
-
-fig.update_xaxes(range=[200, 1100])
-fig.update_yaxes(range=[0, 1.1])
+    # Line Chart untuk Mode Optimal Thickness
+    fig = make_subplots(rows=1, cols=1, subplot_titles=('Kurva Transmitansi, Reflektansi, dan Absorbansi'))
+    
+    fig.add_trace(
+        go.Scatter(x=wavelength_range, y=transmittance_values, name='Transmitansi (T)', 
+                   line=dict(color='green', width=3)),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=wavelength_range, y=reflectance_values, name='Reflektansi (R)', 
+                   line=dict(color='red', width=3)),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=wavelength_range, y=absorbance_values, name='Absorbansi (A)', 
+                   line=dict(color='blue', width=3)),
+        row=1, col=1
+    )
+    
+    fig.update_layout(
+        height=600,
+        xaxis_title="Panjang Gelombang (nm)",
+        yaxis_title="Intensitas Relatif",
+        hovermode='x unified',
+        showlegend=True,
+        template='plotly_white'
+    )
+    
+    fig.update_xaxes(range=[200, 1100])
+    fig.update_yaxes(range=[0, 1.1])
 
 # Informasi pada panjang gelombang yang dipilih
 st.markdown("### 📍 Hasil pada Panjang Gelombang Terpilih")
