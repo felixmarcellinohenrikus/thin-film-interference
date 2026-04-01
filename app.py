@@ -32,7 +32,7 @@ st.markdown("""
     .header-container h5 {
         color: white;
         text-align: center;
-        margin: 0.1rem 0;
+        margin: 0.0rem 0;
     }
     .card-container {
         background-color: #f0f8ff;
