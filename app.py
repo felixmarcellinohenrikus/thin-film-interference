@@ -268,7 +268,7 @@ theta_incident = st.sidebar.slider(
 st.sidebar.markdown("### 🔍 Mode Kalkulasi")
 calculation_mode = st.sidebar.radio(
     "Pilih Mode",
-    options=["Manual", "Ketebalan Optimal"],
+    options=["Manual", "Optimal Thickness"],
     help="Manual: gunakan ketebalan yang ditentukan\nOptimal: hitung ketebalan untuk minimizing reflection"
 )
 
