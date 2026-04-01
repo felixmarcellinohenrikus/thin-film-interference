@@ -7,7 +7,7 @@ import pandas as pd
 # ============================================================================
 # KONFIGURASI HALAMAN
 # ============================================================================
-st.set_page_config(
+st.set_page_config
     page_title="Simulasi Interferensi Selaput Tipis",
     page_icon="🔬",
     layout="wide"
@@ -170,49 +170,83 @@ def calculate_reflection_coefficient(n1, n2, theta_incident, polarization='s'):
     
     return r ** 2
 
-def calculate_transmittance(layers, thicknesses, wavelength, theta_incident):
+def calculate_transmittance_reflectance_multilayer(layers, thicknesses, wavelength, theta_incident=0):
     """
-    Menghitung transmitansi untuk multilayer menggunakan metode transfer matrix
+    Menghitung transmitansi dan reflektansi untuk multilayer thin film
+    menggunakan metode Transfer Matrix yang benar
     """
-    n_layers = len(layers)
-    
-    # Konversi satuan
     wavelength_m = wavelength * 1e-9  # nm ke meter
-    thicknesses_m = [t * 1e-6 for t in thicknesses]  # mm ke meter
+    thicknesses_m = [t * 1e-3 for t in thicknesses]  # mm ke meter
     
-    # Matriks transfer untuk setiap layer
-    M_total = np.array([[1, 0], [0, 1]], dtype=complex)
+    n_0 = layers[0]  # Medium awal
+    n_s = layers[-1]  # Substrat
     
-    for i in range(n_layers - 1):
-        n1 = layers[i]
-        n2 = layers[i + 1]
-        d = thicknesses_m[i] if i < len(thicknesses_m) else 0
-        
-        # Koefisien Fresnel
-        r = (n1 - n2) / (n1 + n2)
-        t = 2 * n1 / (n1 + n2)
-        
-        # Fase
-        delta = 2 * np.pi * n2 * d / wavelength_m
-        
-        # Matriks untuk interface ini
-        M_interface = np.array([
-            [1, r],
-            [r, 1]
-        ]) / t
-        
-        # Matriks untuk propagasi
-        M_propagation = np.array([
-            [np.exp(-1j * delta), 0],
-            [0, np.exp(1j * delta)]
-        ])
-        
-        M_total = M_total @ M_interface @ M_propagation
+    theta_0 = np.radians(theta_incident)
     
-    # Transmitansi
-    T = 1 / abs(M_total[0, 0]) ** 2
+    # Hitung sudut di setiap layer menggunakan Snell's law
+    thetas = [theta_0]
+    for i in range(1, len(layers)):
+        try:
+            theta_i = np.arcsin(n_0 * np.sin(theta_0) / layers[i])
+            thetas.append(theta_i)
+        except:
+            thetas.append(0)  # Total internal reflection
     
-    return min(T, 1.0)
+    # Build transfer matrix
+    M = np.array([[1, 0], [0, 1]], dtype=complex)
+    
+    for i in range(len(layers) - 1):
+        n_i = layers[i]
+        n_ip1 = layers[i + 1]
+        theta_i = thetas[i]
+        theta_ip1 = thetas[i + 1]
+        
+        # Koefisien Fresnel untuk polarisasi s (TE)
+        r_s = (n_i * np.cos(theta_i) - n_ip1 * np.cos(theta_ip1)) / \
+              (n_i * np.cos(theta_i) + n_ip1 * np.cos(theta_ip1))
+        t_s = (2 * n_i * np.cos(theta_i)) / \
+              (n_i * np.cos(theta_i) + n_ip1 * np.cos(theta_ip1))
+        
+        # Phase shift untuk layer ini
+        if i < len(thicknesses_m):
+            d = thicknesses_m[i]
+            delta = 2 * np.pi * n_ip1 * d * np.cos(theta_ip1) / wavelength_m
+        else:
+            delta = 0
+        
+        # Characteristic matrix untuk layer ini
+        if delta != 0:
+            m_11 = np.cos(delta)
+            m_12 = 1j * np.sin(delta) / (n_ip1 * np.cos(theta_ip1))
+            m_21 = 1j * n_ip1 * np.cos(theta_ip1) * np.sin(delta)
+            m_22 = np.cos(delta)
+        else:
+            m_11, m_12, m_21, m_22 = 1, 0, 0, 1
+        
+        M_layer = np.array([[m_11, m_12], [m_21, m_22]])
+        M = M @ M_layer
+    
+    # Koefisien refleksi dan transmitansi
+    n_incident = n_0 * np.cos(theta_0)
+    n_exit = n_s * np.cos(thetas[-1])
+    
+    r = (M[0, 0] * n_incident + M[0, 1] * n_incident * n_exit - 
+         M[1, 0] - M[1, 1] * n_exit) / \
+        (M[0, 0] * n_incident + M[0, 1] * n_incident * n_exit + 
+         M[1, 0] + M[1, 1] * n_exit)
+    
+    t = 2 * n_incident / \
+        (M[0, 0] * n_incident + M[0, 1] * n_incident * n_exit + 
+         M[1, 0] + M[1, 1] * n_exit)
+    
+    R = np.abs(r) ** 2
+    T = np.abs(t) ** 2 * (n_exit / n_incident)
+    
+    # Normalisasi
+    T = min(T, 1.0)
+    R = min(R, 1.0)
+    
+    return T, R
 
 def calculate_optimal_thickness(n_film, n_substrate, wavelength, theta_incident=0):
     """
@@ -448,8 +482,8 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Tentukan thicknesses yang akan digunakan
 if calculation_mode == "Optimal Thickness" and len(layers) == 3:
-    # Hitung ulang d_optimal untuk digunakan di plot
     n_film = layers[1]
     n_substrate = layers[2]
     d_optimal = calculate_optimal_thickness(n_film, n_substrate, wavelength, theta_incident)
@@ -457,15 +491,14 @@ if calculation_mode == "Optimal Thickness" and len(layers) == 3:
 else:
     thicknesses_to_use = thicknesses
 
-# Kalkulasi Transmitansi dan Reflektansi
-wavelength_range = np.linspace(200, 1100, 200)
+# Kalkulasi untuk seluruh range panjang gelombang
+wavelength_range = np.linspace(200, 1100, 300)
 transmittance_values = []
 reflectance_values = []
 absorbance_values = []
 
 for wl in wavelength_range:
-    T = calculate_transmittance(layers, thicknesses_to_use, wl, theta_incident)
-    R = calculate_reflection_coefficient(layers[0], layers[-1], theta_incident)
+    T, R = calculate_transmittance_reflectance_multilayer(layers, thicknesses_to_use, wl, theta_incident)
     A = calculate_absorbance(T, R)
     
     transmittance_values.append(T)
@@ -476,7 +509,7 @@ if calculation_mode == "Manual":
     # Diagram Batang untuk Mode Manual
     fig = go.Figure()
     
-    idx = np.argmin(np.abs(wavelength_range - wavelength))
+    idx = int(np.argmin(np.abs(wavelength_range - wavelength)))
     T_val = transmittance_values[idx]
     R_val = reflectance_values[idx]
     A_val = absorbance_values[idx]
@@ -484,7 +517,7 @@ if calculation_mode == "Manual":
     fig.add_trace(go.Bar(
         x=['Transmitansi (T)', 'Reflektansi (R)', 'Absorbansi (A)'],
         y=[T_val, R_val, A_val],
-        marker_color=['green', 'red', 'blue'],
+        marker_color=['#2ecc71', '#e74c3c', '#3498db'],
         text=[f'{T_val:.4f}', f'{R_val:.4f}', f'{A_val:.4f}'],
         textposition='outside'
     ))
@@ -495,33 +528,59 @@ if calculation_mode == "Manual":
         yaxis_title="Intensitas Relatif",
         yaxis_range=[0, 1.1],
         template='plotly_white',
-        title=f"Intensitas pada λ = {wavelength} nm"
+        title=f"Intensitas pada λ = {wavelength} nm",
+        showlegend=False
     )
 else:
-    # ✅ REVISI: Line Chart untuk Mode Optimal - Fokus pada Absorbance vs Wavelength
+    # ✅ Line Chart untuk Mode Optimal - Spektrum Penuh UV-Vis-IR
     fig = go.Figure()
-    
-    # Plot Absorbance sebagai utama
-    fig.add_trace(
-        go.Scatter(x=wavelength_range, y=absorbance_values, name='Absorbansi (A)', 
-                   line=dict(color='blue', width=4), fill='tozeroy')
-    )
     
     # Plot Transmitansi
     fig.add_trace(
-        go.Scatter(x=wavelength_range, y=transmittance_values, name='Transmitansi (T)', 
-                   line=dict(color='green', width=3, dash='dash'))
+        go.Scatter(
+            x=wavelength_range, 
+            y=transmittance_values, 
+            name='Transmitansi (T)',
+            line=dict(color='#2ecc71', width=3, shape='spline'),
+            mode='lines',
+            fill=None
+        )
     )
     
     # Plot Reflektansi
     fig.add_trace(
-        go.Scatter(x=wavelength_range, y=reflectance_values, name='Reflektansi (R)', 
-                   line=dict(color='red', width=3, dash='dot'))
+        go.Scatter(
+            x=wavelength_range, 
+            y=reflectance_values, 
+            name='Reflektansi (R)',
+            line=dict(color='#e74c3c', width=3, shape='spline'),
+            mode='lines',
+            fill=None
+        )
+    )
+    
+    # Plot Absorbansi
+    fig.add_trace(
+        go.Scatter(
+            x=wavelength_range, 
+            y=absorbance_values, 
+            name='Absorbansi (A)',
+            line=dict(color='#3498db', width=3, shape='spline'),
+            mode='lines',
+            fill='tozeroy',
+            fillcolor='rgba(52, 152, 219, 0.2)'
+        )
     )
     
     # Garis vertikal pada wavelength yang dipilih
-    fig.add_vline(x=wavelength, line_dash="dash", line_color="black", 
-                  annotation_text=f"λ = {wavelength} nm", annotation_position="top")
+    fig.add_vline(
+        x=wavelength, 
+        line_dash="dash", 
+        line_color="black", 
+        line_width=2,
+        annotation_text=f"λ = {wavelength} nm", 
+        annotation_position="top"
+    )
     
     fig.update_layout(
         height=600,
@@ -534,18 +593,56 @@ else:
         xaxis=dict(
             range=[200, 1100],
             tickmode='array',
-            tickvals=[200, 400, 500, 600, 700, 900, 1100],
-            ticktext=['200 (UV)', '400', '500', '600', '700', '900', '1100 (IR)']
+            tickvals=[200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100],
+            ticktext=['200', '300', '400', '500', '600', '700', '800', '900', '1000', '1100'],
+            showgrid=True,
+            gridcolor='lightgray',
+            gridwidth=1
+        ),
+        yaxis=dict(
+            range=[0, 1.05],
+            tickformat='.2f',
+            showgrid=True,
+            gridcolor='lightgray',
+            gridwidth=1
+        ),
+        legend=dict(
+            x=0.02,
+            y=0.98,
+            bgcolor='rgba(255, 255, 255, 0.8)',
+            bordercolor='black',
+            borderwidth=1
         )
     )
     
     # Tambahkan region shading untuk UV, Visible, IR
-    fig.add_vrect(x0=200, x1=400, fillcolor="purple", opacity=0.1, layer="below", 
-                  annotation_text="UV", annotation_position="top")
-    fig.add_vrect(x0=400, x1=700, fillcolor="yellow", opacity=0.1, layer="below", 
-                  annotation_text="Visible", annotation_position="top")
-    fig.add_vrect(x0=700, x1=1100, fillcolor="orange", opacity=0.1, layer="below", 
-                  annotation_text="IR", annotation_position="top")
+    fig.add_vrect(
+        x0=200, x1=400, 
+        fillcolor="purple", 
+        opacity=0.1, 
+        layer="below",
+        annotation_text="UV", 
+        annotation_position="top",
+        line_width=0
+    )
+    fig.add_vrect(
+        x0=400, x1=700, 
+        fillcolor="yellow", 
+        opacity=0.1, 
+        layer="below",
+        annotation_text="Visible", 
+        annotation_position="top",
+        line_width=0
+    )
+    fig.add_vrect(
+        x0=700, x1=1100, 
+        fillcolor="orange", 
+        opacity=0.1, 
+        layer="below",
+        annotation_text="IR", 
+        annotation_position="top",
+        line_width=0
+    )
 
 st.plotly_chart(fig, use_container_width=True)
 
