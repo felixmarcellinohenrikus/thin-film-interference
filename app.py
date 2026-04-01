@@ -29,7 +29,7 @@ st.markdown("""
         text-align: center;
         margin-bottom: 0.5rem;
     }
-    .header-container h5 {
+    .header-container h6 {
         color: white;
         text-align: center;
         margin: 0.0rem 0;
@@ -46,7 +46,7 @@ st.markdown("""
         background-color: #006994;
         padding: 1rem;
         border-radius: 10px;
-        margin-top: 3rem;
+        margin-top: 0rem;
         text-align: center;
         color: white;
     }
