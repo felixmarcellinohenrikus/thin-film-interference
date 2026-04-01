@@ -64,9 +64,9 @@ st.markdown("""
 st.markdown("""
 <div class="header-container">
     <h1>Simulasi Interferensi Selaput Tipis</h1>
-    <h5>Dikembangkan oleh Felix Marcellino Henrikus, S.Si.</h5>
-    <h5>Program Studi Magister Sains Data, UKSW Salatiga</h5>
-    <h5>Untuk digunakan dalam pembelajaran Optika Gelombang di S1 Fisika, UKSW Salatiga</h5>
+    <h6>Dikembangkan oleh Felix Marcellino Henrikus, S.Si.</h6>
+    <h6>Program Studi Magister Sains Data, UKSW Salatiga</h6>
+    <h6>Untuk digunakan dalam pembelajaran Optika Gelombang di S1 Fisika, UKSW Salatiga</h6>
 </div>
 """, unsafe_allow_html=True)
 
