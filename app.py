@@ -71,6 +71,46 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
+# INFORMASI TAMBAHAN
+# ============================================================================
+with st.expander("📚 Panduan Penggunaan"):
+    st.markdown("""
+    ### Cara Menggunakan Simulasi Ini:
+    
+    1. **Pilih Jumlah Layer**: Tentukan jumlah medium (3-8 layer)
+    2. **Susun Medium**: Pilih medium untuk setiap layer dari database yang tersedia
+    3. **Atur Ketebalan**: Masukkan ketebalan setiap layer dalam satuan mm
+    4. **Pilih Panjang Gelombang**: Dari UV (200 nm) hingga IR (1100 nm)
+    5. **Atur Sudut Datang**: 0° (normal) hingga 90° (grazing)
+    6. **Pilih Mode**: Manual atau Optimal Thickness untuk anti-reflection coating
+    
+    ### Informasi Fisika:
+    
+    - **Pembalikan Fase**: Terjadi ketika cahaya merambat dari medium dengan indeks bias lebih rendah ke lebih tinggi
+    - **Ketebalan Optimal**: d = λ/(4n) untuk minimum reflection
+    - **Transmitansi**: T + R + A = 1 (konservasi energi)
+    
+    ### Referensi:
+    
+    - Hecht, E. (2017). Optics (5th ed.). Pearson.
+    - Born, M., & Wolf, E. (1999). Principles of Optics. Cambridge University Press.
+    """)
+
+with st.expander("📋 Database Medium"):
+    st.markdown("""
+    | Medium | Indeks Bias (n) |
+    |--------|-----------------|
+    | Udara | 1.00 |
+    | Etanol | 1.36 |
+    | Air | 1.33 |
+    | MgF₂ | 1.38 |
+    | Minyak Goreng | 1.45 |
+    | SiO₂ | 1.46 |
+    | Gliserin | 1.47 |
+    | Crown Glass | 1.52 |
+    """)
+
+# ============================================================================
 # DATABASE MEDIUM
 # ============================================================================
 MEDIUM_DATABASE = {
@@ -269,8 +309,13 @@ st.sidebar.markdown("### 🔍 Mode Kalkulasi")
 calculation_mode = st.sidebar.radio(
     "Pilih Mode",
     options=["Manual", "Optimal Thickness"],
-    help="Manual: gunakan ketebalan yang ditentukan\nOptimal: hitung ketebalan untuk minimizing reflection"
+    help="Manual: gunakan ketebalan yang ditentukan\nOptimal: hitung ketebalan untuk minimizing reflection (hanya 3 layer)"
 )
+
+# ✅ REVISI: Jika Optimal Thickness, paksa 3 layer
+if calculation_mode == "Optimal Thickness":
+    st.sidebar.warning("⚠️ Mode Optimal Thickness hanya tersedia untuk **3 layer** (Medium 1 - Film - Substrat)")
+    num_layers = 3  # Paksa 3 layer
 
 # ============================================================================
 # MAIN CONTENT
@@ -337,7 +382,9 @@ with col2:
     T = 1 - R - A
     """)
 
-# Ketebalan Optimal
+# ============================================================================
+# KETEBALAN OPTIMAL (Revisi untuk 3 Layer)
+# ============================================================================
 if calculation_mode == "Optimal Thickness":
     st.markdown("""
     <div class="card-container">
@@ -345,26 +392,46 @@ if calculation_mode == "Optimal Thickness":
     </div>
     """, unsafe_allow_html=True)
     
-    if len(layers) >= 2:
-        n_film = layers[1] if len(layers) > 1 else layers[0]
-        n_substrate = layers[-1]
+    # ✅ Pastikan konfigurasi 3 layer: Medium 1 - Film - Substrat
+    if len(layers) == 3:
+        n_air = layers[0]      # Medium pertama (biasanya udara)
+        n_film = layers[1]     # Layer film (coating)
+        n_substrate = layers[2] # Substrat
         
+        # Hitung ketebalan optimal untuk panjang gelombang yang dipilih
         d_optimal = calculate_optimal_thickness(n_film, n_substrate, wavelength, theta_incident)
         
+        # Update ketebalan layer film dengan nilai optimal
+        thicknesses = [0.0, d_optimal]  # Layer 1 = 0 (terbuka), Layer 2 = optimal
+        
         st.markdown(f"""
-        **Ketebalan Optimal untuk λ = {wavelength} nm:**
+        ### Konfigurasi 3 Layer:
+        
+        | Layer | Medium | Indeks Bias (n) | Ketebalan (mm) |
+        |-------|--------|-----------------|----------------|
+        | 1 | {list(MEDIUM_DATABASE.keys())[list(MEDIUM_DATABASE.values()).index(n_air)]} | {n_air:.2f} | 0.0000 (terbuka) |
+        | 2 | {list(MEDIUM_DATABASE.keys())[list(MEDIUM_DATABASE.values()).index(n_film)]} | {n_film:.2f} | {d_optimal:.6f} (optimal) |
+        | 3 | {list(MEDIUM_DATABASE.keys())[list(MEDIUM_DATABASE.values()).index(n_substrate)]} | {n_substrate:.2f} | ∞ (substrat) |
+        
+        ### Perhitungan Ketebalan Optimal:
         
         $$d_{{\\text{{optimal}}}} = \\frac{{\\lambda}}{{4n_{{\\text{{film}}}}}} = \\frac{{{wavelength}}}{{4 \\times {n_film:.2f}}} = {d_optimal:.6f} \\text{{ mm}}$$
         
-        **Kondisi untuk Minimum Reflection:**
+        ### Kondisi Ideal Anti-Reflection Coating:
         
-        $$n_{{\\text{{film}}}} = \\sqrt{{n_{{\\text{{air}}}} \\times n_{{\\text{{substrate}}}}}} = \\sqrt{{1.00 \\times {n_substrate:.2f}}} = {np.sqrt(n_substrate):.4f}$$
+        $$n_{{\\text{{film}}}} = \\sqrt{{n_{{\\text{{air}}}} \\times n_{{\\text{{substrate}}}}}} = \\sqrt{{{n_air:.2f} \\times {n_substrate:.2f}}} = {np.sqrt(n_air * n_substrate):.4f}$$
+        
+        **Indeks bias film saat ini:** {n_film:.2f}  
+        **Indeks bias ideal:** {np.sqrt(n_air * n_substrate):.4f}  
+        **Status:** {'✅ Optimal' if abs(n_film - np.sqrt(n_air * n_substrate)) < 0.05 else '⚠️ Tidak Ideal (pilih MgF₂ untuk hasil terbaik)'}
         """)
-        
-        # Update thicknesses dengan nilai optimal
-        thicknesses = [d_optimal] * len(thicknesses)
+    else:
+        st.error("❌ Mode Optimal Thickness memerlukan tepat **3 layer**!")
+        st.info("Silakan ubah jumlah layer menjadi 3 di sidebar.")
 
-# Card Container untuk Hasil Simulasi
+# ============================================================================
+# PLOT HASIL SIMULASI (Revisi untuk Optimal Thickness)
+# ============================================================================
 st.markdown("""
 <div class="card-container">
     <h3>📈 Hasil Simulasi</h3>
@@ -386,12 +453,11 @@ for wl in wavelength_range:
     reflectance_values.append(R)
     absorbance_values.append(A)
 
-# Plot kurva
+# ✅ REVISI: Plot berbeda untuk Manual vs Optimal
 if calculation_mode == "Manual":
     # Diagram Batang untuk Mode Manual
     fig = go.Figure()
     
-    # Ambil nilai pada wavelength yang dipilih
     idx = np.argmin(np.abs(wavelength_range - wavelength))
     T_val = transmittance_values[idx]
     R_val = reflectance_values[idx]
@@ -414,26 +480,30 @@ if calculation_mode == "Manual":
         title=f"Intensitas pada λ = {wavelength} nm"
     )
 else:
-    # Line Chart untuk Mode Optimal Thickness
-    fig = make_subplots(rows=1, cols=1, subplot_titles=('Kurva Transmitansi, Reflektansi, dan Absorbansi'))
+    # ✅ REVISI: Line Chart untuk Mode Optimal - Fokus pada Absorbance vs Wavelength
+    fig = go.Figure()
     
-    fig.add_trace(
-        go.Scatter(x=wavelength_range, y=transmittance_values, name='Transmitansi (T)', 
-                   line=dict(color='green', width=3)),
-        row=1, col=1
-    )
-    
-    fig.add_trace(
-        go.Scatter(x=wavelength_range, y=reflectance_values, name='Reflektansi (R)', 
-                   line=dict(color='red', width=3)),
-        row=1, col=1
-    )
-    
+    # Plot Absorbance sebagai utama
     fig.add_trace(
         go.Scatter(x=wavelength_range, y=absorbance_values, name='Absorbansi (A)', 
-                   line=dict(color='blue', width=3)),
-        row=1, col=1
+                   line=dict(color='blue', width=4), fill='tozeroy')
     )
+    
+    # Plot Transmitansi
+    fig.add_trace(
+        go.Scatter(x=wavelength_range, y=transmittance_values, name='Transmitansi (T)', 
+                   line=dict(color='green', width=3, dash='dash'))
+    )
+    
+    # Plot Reflektansi
+    fig.add_trace(
+        go.Scatter(x=wavelength_range, y=reflectance_values, name='Reflektansi (R)', 
+                   line=dict(color='red', width=3, dash='dot'))
+    )
+    
+    # Garis vertikal pada wavelength yang dipilih
+    fig.add_vline(x=wavelength, line_dash="dash", line_color="black", 
+                  annotation_text=f"λ = {wavelength} nm", annotation_position="top")
     
     fig.update_layout(
         height=600,
@@ -441,11 +511,25 @@ else:
         yaxis_title="Intensitas Relatif",
         hovermode='x unified',
         showlegend=True,
-        template='plotly_white'
+        template='plotly_white',
+        title="Spektrum Absorbansi, Transmitansi, dan Reflektansi (UV - Visible - IR)",
+        xaxis=dict(
+            range=[200, 1100],
+            tickmode='array',
+            tickvals=[200, 400, 500, 600, 700, 900, 1100],
+            ticktext=['200 (UV)', '400', '500', '600', '700', '900', '1100 (IR)']
+        )
     )
     
-    fig.update_xaxes(range=[200, 1100])
-    fig.update_yaxes(range=[0, 1.1])
+    # Tambahkan region shading untuk UV, Visible, IR
+    fig.add_vrect(x0=200, x1=400, fillcolor="purple", opacity=0.1, layer="below", 
+                  annotation_text="UV", annotation_position="top")
+    fig.add_vrect(x0=400, x1=700, fillcolor="yellow", opacity=0.1, layer="below", 
+                  annotation_text="Visible", annotation_position="top")
+    fig.add_vrect(x0=700, x1=1100, fillcolor="orange", opacity=0.1, layer="below", 
+                  annotation_text="IR", annotation_position="top")
+
+st.plotly_chart(fig, use_container_width=True)
 
 # Informasi pada panjang gelombang yang dipilih
 st.markdown("### 📍 Hasil pada Panjang Gelombang Terpilih")
@@ -510,42 +594,4 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ============================================================================
-# INFORMASI TAMBAHAN
-# ============================================================================
-with st.expander("📚 Panduan Penggunaan"):
-    st.markdown("""
-    ### Cara Menggunakan Simulasi Ini:
-    
-    1. **Pilih Jumlah Layer**: Tentukan jumlah medium (3-8 layer)
-    2. **Susun Medium**: Pilih medium untuk setiap layer dari database yang tersedia
-    3. **Atur Ketebalan**: Masukkan ketebalan setiap layer dalam satuan mm
-    4. **Pilih Panjang Gelombang**: Dari UV (200 nm) hingga IR (1100 nm)
-    5. **Atur Sudut Datang**: 0° (normal) hingga 90° (grazing)
-    6. **Pilih Mode**: Manual atau Optimal Thickness untuk anti-reflection coating
-    
-    ### Informasi Fisika:
-    
-    - **Pembalikan Fase**: Terjadi ketika cahaya merambat dari medium dengan indeks bias lebih rendah ke lebih tinggi
-    - **Ketebalan Optimal**: d = λ/(4n) untuk minimum reflection
-    - **Transmitansi**: T + R + A = 1 (konservasi energi)
-    
-    ### Referensi:
-    
-    - Hecht, E. (2017). Optics (5th ed.). Pearson.
-    - Born, M., & Wolf, E. (1999). Principles of Optics. Cambridge University Press.
-    """)
 
-with st.expander("📋 Database Medium"):
-    st.markdown("""
-    | Medium | Indeks Bias (n) |
-    |--------|-----------------|
-    | Udara | 1.00 |
-    | Etanol | 1.36 |
-    | Air | 1.33 |
-    | MgF₂ | 1.38 |
-    | Minyak Goreng | 1.45 |
-    | SiO₂ | 1.46 |
-    | Gliserin | 1.47 |
-    | Crown Glass | 1.52 |
-    """)
