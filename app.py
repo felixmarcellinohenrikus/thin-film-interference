@@ -170,107 +170,103 @@ def calculate_reflection_coefficient(n1, n2, theta_incident, polarization='s'):
     
     return r ** 2
 
-def calculate_transmittance_reflectance_multilayer(layers, thicknesses, wavelength_nm, theta_incident=0):
+def calculate_transmittance_reflectance_multilayer(layers, thicknesses_mm, wavelength_nm, theta_incident=0):
     """
     Menghitung transmitansi dan reflektansi untuk multilayer thin film
-    menggunakan metode Transfer Matrix yang benar dengan konservasi energi
+    menggunakan metode Transfer Matrix
+    
+    Parameters:
+    layers : list of float - Indeks bias [n0, n1, n2, ..., ns]
+    thicknesses_mm : list of float - Ketebalan dalam MM
+    wavelength_nm : float - Panjang gelombang dalam NM
+    theta_incident : float - Sudut datang dalam derajat
     
     Returns: T, R (dengan T + R <= 1)
     """
     
-    # Konversi satuan
+    # === KONVERSI SATUAN ===
     wavelength_m = wavelength_nm * 1e-9  # nm → meter
-    theta_0 = np.radians(theta_incident)  # derajat → radian
+    theta_0 = np.radians(theta_incident)
     
-    n_0 = layers[0]  # Medium incident
-    n_s = layers[-1]  # Substrat
+    n_0 = layers[0]
+    n_s = layers[-1]
     
     # Hitung sudut di setiap layer (Snell's law)
-    thetas = []
-    for j, n_j in enumerate(layers):
-        sin_theta_j = n_0 * np.sin(theta_0) / n_j
-        if abs(sin_theta_j) <= 1:
-            theta_j = np.arcsin(sin_theta_j)
+    thetas = [theta_0]
+    for j in range(1, len(layers)):
+        sin_theta = n_0 * np.sin(theta_0) / layers[j]
+        if abs(sin_theta) <= 1:
+            thetas.append(np.arcsin(sin_theta))
         else:
-            theta_j = np.pi / 2  # Total internal reflection
-        thetas.append(theta_j)
+            thetas.append(np.pi / 2)
     
     # === BUILD TRANSFER MATRIX ===
     M = np.array([[1, 0], [0, 1]], dtype=complex)
     
     for j in range(len(layers) - 1):
-        n_j = layers[j]
-        n_j1 = layers[j + 1]
-        theta_j = thetas[j]
-        theta_j1 = thetas[j + 1]
+        n_current = layers[j]
+        n_next = layers[j + 1]
+        theta_current = thetas[j]
+        theta_next = thetas[j + 1]
         
-        # Dapatkan ketebalan layer j (dalam meter)
-        if j < len(thicknesses):
-            d_j_m = thicknesses[j] * 1e-3  # mm → meter
+        # === AMBIL KETEBALAN LAYER INI ===
+        if j < len(thicknesses_mm):
+            d_mm = thicknesses_mm[j]
+            d_m = d_mm * 1e-3  # mm → meter
         else:
-            d_j_m = 0
+            d_m = 0
         
-        # === Characteristic matrix untuk layer j+1 ===
-        # δ = (2π/λ) * n * d * cos(θ)
-        if d_j_m > 0:
-            delta_j = (2 * np.pi / wavelength_m) * n_j1 * d_j_m * np.cos(theta_j1)
+        # === PHASE SHIFT (ini yang membuat ketebalan berpengaruh!) ===
+        if d_m > 1e-12:  # Hanya hitung jika ketebalan > 0
+            delta = (2 * np.pi / wavelength_m) * n_next * d_m * np.cos(theta_next)
             
-            # Matriks karakteristik layer
-            cos_delta = np.cos(delta_j)
-            sin_delta = np.sin(delta_j)
+            # Characteristic matrix untuk layer ini
+            eta = n_next * np.cos(theta_next)  # Admittance
             
-            # Admittance untuk s-polarization
-            eta_j1 = n_j1 * np.cos(theta_j1)
+            M_layer = np.array([
+                [np.cos(delta), 1j * np.sin(delta) / eta],
+                [1j * eta * np.sin(delta), np.cos(delta)]
+            ], dtype=complex)
             
-            m_11 = cos_delta
-            m_12 = 1j * sin_delta / eta_j1
-            m_21 = 1j * eta_j1 * sin_delta
-            m_22 = cos_delta
-            
-            M_layer = np.array([[m_11, m_12], [m_21, m_22]], dtype=complex)
-            M = M @ M_layer
+            M = M @ M_layer  # Matrix multiplication!
+        
+        # === INTERFACE MATRIX ===
+        eta_current = n_current * np.cos(theta_current)
+        eta_next = n_next * np.cos(theta_next)
+        
+        r_interface = (eta_current - eta_next) / (eta_current + eta_next)
+        
+        M_interface = np.array([
+            [1, r_interface],
+            [r_interface, 1]
+        ], dtype=complex) / (1 + r_interface) if abs(1 + r_interface) > 1e-10 else np.array([[1, 0], [0, 1]], dtype=complex)
+        
+        M = M @ M_interface
     
-    # === HITUNG R DAN T DARI MATRIX TOTAL ===
-    # Admittance medium incident dan exit
+    # === HITUNG R DAN T ===
     eta_0 = n_0 * np.cos(theta_0)
     eta_s = n_s * np.cos(thetas[-1])
     
-    # Koefisien refleksi
     numerator = (M[0, 0] + M[0, 1] * eta_s) * eta_0 - (M[1, 0] + M[1, 1] * eta_s)
     denominator = (M[0, 0] + M[0, 1] * eta_s) * eta_0 + (M[1, 0] + M[1, 1] * eta_s)
     
-    if abs(denominator) < 1e-12:
-        r = 0
-    else:
+    if abs(denominator) > 1e-12:
         r = numerator / denominator
-    
-    # Koefisien transmitansi
-    if abs(denominator) < 1e-12:
-        t = 0
-    else:
         t = 2 * eta_0 / denominator
+    else:
+        r = 0
+        t = 0
     
-    # Reflektansi
     R = np.abs(r) ** 2
+    T = np.abs(t) ** 2 * (eta_s.real / eta_0.real) if eta_0.real > 1e-10 else 0
     
-    # Transmitansi (dengan koreksi impedansi untuk konservasi energi)
-    T = np.abs(t) ** 2 * (eta_s.real / eta_0.real) if eta_0.real > 0 else 0
-    
-    # === NORMALISASI UNTUK KONSERVASI ENERGI ===
-    # Pastikan T + R <= 1
+    # Normalisasi untuk konservasi energi
     total = T + R
-    
     if total > 1.0:
-        # Normalisasi proporsional
-        scale = 1.0 / total
-        T = T * scale
-        R = R * scale
+        T = T / total
+        R = R / total
     
-    # Batasi nilai antara 0 dan 1
-    T = max(0.0, min(1.0, T.real))
-    R = max(0.0, min(1.0, R.real))
-    
-    return T, R
+    return max(0, min(1, T.real)), max(0, min(1, R.real))
 
 def calculate_optimal_thickness(n_film, n_substrate, wavelength, theta_incident=0):
     """
@@ -498,7 +494,7 @@ if calculation_mode == "Optimal Thickness":
         thicknesses_to_use = thicknesses
 
 # ============================================================================
-# PLOT HASIL SIMULASI (Revisi untuk Optimal Thickness)
+# PLOT HASIL SIMULASI
 # ============================================================================
 st.markdown("""
 <div class="card-container">
@@ -506,31 +502,45 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Tentukan thicknesses yang akan digunakan
+# === TENTUKAN THICKNESSES YANG AKAN DIGUNAKAN ===
 if calculation_mode == "Optimal Thickness" and len(layers) == 3:
     n_film = layers[1]
     n_substrate = layers[2]
     d_optimal = calculate_optimal_thickness(n_film, n_substrate, wavelength, theta_incident)
-    thicknesses_to_use = [0.0, d_optimal]
+    thicknesses_for_calc = [0.0, d_optimal]  # Layer 1 = 0, Layer 2 = optimal
+    st.info(f"🎯 Ketebalan optimal film: {d_optimal*1e6:.2f} nm ({d_optimal:.6f} mm)")
 else:
-    thicknesses_to_use = thicknesses
+    thicknesses_for_calc = thicknesses.copy()
 
-# Kalkulasi untuk seluruh range panjang gelombang
+# Debug info (bisa dihapus nanti)
+with st.expander("🔍 Debug Info - Ketebalan yang Digunakan"):
+    st.write(f"**Layers:** {layers}")
+    st.write(f"**Thicknesses (mm):** {thicknesses_for_calc}")
+    st.write(f"**Thicknesses (nm):** {[t*1e6 for t in thicknesses_for_calc]}")
+    st.write(f"**Wavelength:** {wavelength} nm")
+    st.write(f"**Theta:** {theta_incident}°")
+
+# === KALKULASI UNTUK SELURUH RANGE PANJANG GELOMBANG ===
 wavelength_range = np.linspace(200, 1100, 300)
 transmittance_values = []
 reflectance_values = []
 absorbance_values = []
 
 for wl in wavelength_range:
-    T, R = calculate_transmittance_reflectance_multilayer(layers, thicknesses_to_use, wl, theta_incident)
+    T, R = calculate_transmittance_reflectance_multilayer(
+        layers, 
+        thicknesses_for_calc,  # ✅ Gunakan variable yang benar
+        wl, 
+        theta_incident
+    )
     A = calculate_absorbance(T, R)
     
     transmittance_values.append(T)
     reflectance_values.append(R)
     absorbance_values.append(A)
 
+# === PLOT ===
 if calculation_mode == "Manual":
-    # Diagram Batang untuk Mode Manual
     fig = go.Figure()
     
     idx = int(np.argmin(np.abs(wavelength_range - wavelength)))
@@ -556,55 +566,29 @@ if calculation_mode == "Manual":
         showlegend=False
     )
 else:
-    # ✅ Line Chart untuk Mode Optimal - Spektrum Penuh UV-Vis-IR
     fig = go.Figure()
     
-    # Plot Transmitansi
-    fig.add_trace(
-        go.Scatter(
-            x=wavelength_range, 
-            y=transmittance_values, 
-            name='Transmitansi (T)',
-            line=dict(color='#2ecc71', width=3, shape='spline'),
-            mode='lines',
-            fill=None
-        )
-    )
+    fig.add_trace(go.Scatter(
+        x=wavelength_range, y=transmittance_values,
+        name='Transmitansi (T)',
+        line=dict(color='#2ecc71', width=3)
+    ))
     
-    # Plot Reflektansi
-    fig.add_trace(
-        go.Scatter(
-            x=wavelength_range, 
-            y=reflectance_values, 
-            name='Reflektansi (R)',
-            line=dict(color='#e74c3c', width=3, shape='spline'),
-            mode='lines',
-            fill=None
-        )
-    )
+    fig.add_trace(go.Scatter(
+        x=wavelength_range, y=reflectance_values,
+        name='Reflektansi (R)',
+        line=dict(color='#e74c3c', width=3)
+    ))
     
-    # Plot Absorbansi
-    fig.add_trace(
-        go.Scatter(
-            x=wavelength_range, 
-            y=absorbance_values, 
-            name='Absorbansi (A)',
-            line=dict(color='#3498db', width=3, shape='spline'),
-            mode='lines',
-            fill='tozeroy',
-            fillcolor='rgba(52, 152, 219, 0.2)'
-        )
-    )
+    fig.add_trace(go.Scatter(
+        x=wavelength_range, y=absorbance_values,
+        name='Absorbansi (A)',
+        line=dict(color='#3498db', width=3),
+        fill='tozeroy'
+    ))
     
-    # Garis vertikal pada wavelength yang dipilih
-    fig.add_vline(
-        x=wavelength, 
-        line_dash="dash", 
-        line_color="black", 
-        line_width=2,
-        annotation_text=f"λ = {wavelength} nm", 
-        annotation_position="top"
-    )
+    fig.add_vline(x=wavelength, line_dash="dash", line_color="black",
+                  annotation_text=f"λ = {wavelength} nm", annotation_position="top")
     
     fig.update_layout(
         height=600,
@@ -613,70 +597,30 @@ else:
         hovermode='x unified',
         showlegend=True,
         template='plotly_white',
-        title="Spektrum Absorbansi, Transmitansi, dan Reflektansi (UV - Visible - IR)",
-        xaxis=dict(
-            range=[200, 1100],
-            tickmode='array',
-            tickvals=[200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100],
-            ticktext=['200', '300', '400', '500', '600', '700', '800', '900', '1000', '1100'],
-            showgrid=True,
-            gridcolor='lightgray',
-            gridwidth=1
-        ),
-        yaxis=dict(
-            range=[0, 1.05],
-            tickformat='.2f',
-            showgrid=True,
-            gridcolor='lightgray',
-            gridwidth=1
-        ),
-        legend=dict(
-            x=0.02,
-            y=0.98,
-            bgcolor='rgba(255, 255, 255, 0.8)',
-            bordercolor='black',
-            borderwidth=1
-        )
+        title="Spektrum Absorbansi, Transmitansi, dan Reflektansi (UV - Visible - IR)"
     )
     
-    # Tambahkan region shading untuk UV, Visible, IR
-    fig.add_vrect(
-        x0=200, x1=400, 
-        fillcolor="purple", 
-        opacity=0.1, 
-        layer="below",
-        annotation_text="UV", 
-        annotation_position="top",
-        line_width=0
-    )
-    fig.add_vrect(
-        x0=400, x1=700, 
-        fillcolor="yellow", 
-        opacity=0.1, 
-        layer="below",
-        annotation_text="Visible", 
-        annotation_position="top",
-        line_width=0
-    )
-    fig.add_vrect(
-        x0=700, x1=1100, 
-        fillcolor="orange", 
-        opacity=0.1, 
-        layer="below",
-        annotation_text="IR", 
-        annotation_position="top",
-        line_width=0
-    )
+    fig.add_vrect(x0=200, x1=400, fillcolor="purple", opacity=0.1, layer="below")
+    fig.add_vrect(x0=400, x1=700, fillcolor="yellow", opacity=0.1, layer="below")
+    fig.add_vrect(x0=700, x1=1100, fillcolor="orange", opacity=0.1, layer="below")
 
 st.plotly_chart(fig, use_container_width=True)
 
 # Informasi pada panjang gelombang yang dipilih
 st.markdown("### 📍 Hasil pada Panjang Gelombang Terpilih")
 
+# === GUNAKAN FUNGSI YANG SAMA DENGAN PLOT ===
 T_current, R_current = calculate_transmittance_reflectance_multilayer(
-    layers, thicknesses_to_use, wavelength, theta_incident
+    layers,
+    thicknesses_for_calc,  # ✅ Variable yang sama dengan plot
+    wavelength,
+    theta_incident
 )
 A_current = calculate_absorbance(T_current, R_current)
+
+# Debug: Tampilkan T+R+A
+if T_current + R_current + A_current < 0.99 or T_current + R_current + A_current > 1.01:
+    st.warning(f"⚠️ T + R + A = {T_current + R_current + A_current:.4f} (seharusnya 1.0)")
 
 col1, col2, col3 = st.columns(3)
 
@@ -688,7 +632,6 @@ with col2:
 
 with col3:
     st.metric("Absorbansi (A)", f"{A_current:.4f}", f"{A_current*100:.2f}%")
-
 # Visualisasi lapisan
 st.markdown("""
 <div class="card-container">
