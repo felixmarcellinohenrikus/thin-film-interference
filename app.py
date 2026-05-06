@@ -173,43 +173,31 @@ def calculate_reflection_coefficient(n1, n2, theta_incident, polarization='s'):
 def calculate_transmittance_reflectance_multilayer(layers, thicknesses, wavelength_nm, theta_incident=0):
     """
     Menghitung transmitansi dan reflektansi untuk multilayer thin film
-    menggunakan metode Transfer Matrix yang benar
+    menggunakan metode Transfer Matrix yang benar dengan konservasi energi
     
-    Parameters:
-    -----------
-    layers : list of float
-        Indeks bias setiap layer [n0, n1, n2, ..., ns]
-    thicknesses : list of float
-        Ketebalan setiap layer dalam mm (kecuali substrate)
-    wavelength_nm : float
-        Panjang gelombang dalam nm
-    theta_incident : float
-        Sudut datang dalam derajat
-        
-    Returns:
-    --------
-    T, R : float
-        Transmitansi dan Reflektansi
+    Returns: T, R (dengan T + R <= 1)
     """
     
     # Konversi satuan
     wavelength_m = wavelength_nm * 1e-9  # nm → meter
     theta_0 = np.radians(theta_incident)  # derajat → radian
     
+    n_0 = layers[0]  # Medium incident
+    n_s = layers[-1]  # Substrat
+    
     # Hitung sudut di setiap layer (Snell's law)
-    n_0 = layers[0]
     thetas = []
-    for n_j in layers:
-        try:
-            theta_j = np.arcsin(n_0 * np.sin(theta_0) / n_j)
-            thetas.append(theta_j)
-        except:
-            thetas.append(0)  # Total internal reflection
+    for j, n_j in enumerate(layers):
+        sin_theta_j = n_0 * np.sin(theta_0) / n_j
+        if abs(sin_theta_j) <= 1:
+            theta_j = np.arcsin(sin_theta_j)
+        else:
+            theta_j = np.pi / 2  # Total internal reflection
+        thetas.append(theta_j)
     
-    # Inisialisasi matriks transfer total
-    M_total = np.array([[1, 0], [0, 1]], dtype=complex)
+    # === BUILD TRANSFER MATRIX ===
+    M = np.array([[1, 0], [0, 1]], dtype=complex)
     
-    # Proses setiap layer (kecuali substrate terakhir)
     for j in range(len(layers) - 1):
         n_j = layers[j]
         n_j1 = layers[j + 1]
@@ -222,79 +210,65 @@ def calculate_transmittance_reflectance_multilayer(layers, thicknesses, waveleng
         else:
             d_j_m = 0
         
-        # Hitung phase shift untuk layer ini
+        # === Characteristic matrix untuk layer j+1 ===
         # δ = (2π/λ) * n * d * cos(θ)
-        delta_j = (2 * np.pi / wavelength_m) * n_j1 * d_j_m * np.cos(theta_j1)
-        
-        # Koefisien Fresnel untuk interface j→j+1 (s-polarization)
-        # r_s = (n_j cos θ_j - n_j+1 cos θ_j+1) / (n_j cos θ_j + n_j+1 cos θ_j+1)
-        numerator = n_j * np.cos(theta_j) - n_j1 * np.cos(theta_j1)
-        denominator = n_j * np.cos(theta_j) + n_j1 * np.cos(theta_j1)
-        
-        if abs(denominator) < 1e-10:
-            r_j = 0
-            t_j = 1
-        else:
-            r_j = numerator / denominator
-            t_j = 2 * n_j * np.cos(theta_j) / denominator
-        
-        # Matriks interface
-        if abs(t_j) < 1e-10:
-            M_interface = np.array([[1, r_j], [r_j, 1]], dtype=complex)
-        else:
-            M_interface = np.array([[1, r_j], [r_j, 1]], dtype=complex) / t_j
-        
-        # Matriks propagasi melalui layer
         if d_j_m > 0:
-            M_propagation = np.array([
-                [np.exp(-1j * delta_j), 0],
-                [0, np.exp(1j * delta_j)]
-            ], dtype=complex)
-        else:
-            M_propagation = np.array([[1, 0], [0, 1]], dtype=complex)
-        
-        # Gabungkan matriks untuk layer ini
-        M_layer = M_interface @ M_propagation
-        M_total = M_total @ M_layer
+            delta_j = (2 * np.pi / wavelength_m) * n_j1 * d_j_m * np.cos(theta_j1)
+            
+            # Matriks karakteristik layer
+            cos_delta = np.cos(delta_j)
+            sin_delta = np.sin(delta_j)
+            
+            # Admittance untuk s-polarization
+            eta_j1 = n_j1 * np.cos(theta_j1)
+            
+            m_11 = cos_delta
+            m_12 = 1j * sin_delta / eta_j1
+            m_21 = 1j * eta_j1 * sin_delta
+            m_22 = cos_delta
+            
+            M_layer = np.array([[m_11, m_12], [m_21, m_22]], dtype=complex)
+            M = M @ M_layer
     
-    # Hitung koefisien refleksi dan transmitansi total
-    n_incident = layers[0]
-    n_exit = layers[-1]
-    theta_exit = thetas[-1]
+    # === HITUNG R DAN T DARI MATRIX TOTAL ===
+    # Admittance medium incident dan exit
+    eta_0 = n_0 * np.cos(theta_0)
+    eta_s = n_s * np.cos(thetas[-1])
     
-    # Untuk normal incidence (θ = 0)
-    if abs(theta_0) < 1e-10:
-        eta_0 = n_incident
-        eta_s = n_exit
+    # Koefisien refleksi
+    numerator = (M[0, 0] + M[0, 1] * eta_s) * eta_0 - (M[1, 0] + M[1, 1] * eta_s)
+    denominator = (M[0, 0] + M[0, 1] * eta_s) * eta_0 + (M[1, 0] + M[1, 1] * eta_s)
+    
+    if abs(denominator) < 1e-12:
+        r = 0
     else:
-        # Untuk s-polarization
-        eta_0 = n_incident * np.cos(theta_0)
-        eta_s = n_exit * np.cos(theta_exit)
+        r = numerator / denominator
     
-    # Koefisien refleksi dari matriks total
-    # r = (M11 + M12*ηs)*η0 - (M21 + M22*ηs) / (M11 + M12*ηs)*η0 + (M21 + M22*ηs)
-    numerator = (M_total[0, 0] + M_total[0, 1] * eta_s) * eta_0 - (M_total[1, 0] + M_total[1, 1] * eta_s)
-    denominator = (M_total[0, 0] + M_total[0, 1] * eta_s) * eta_0 + (M_total[1, 0] + M_total[1, 1] * eta_s)
-    
-    if abs(denominator) < 1e-10:
-        r_total = 0
-        t_total = 0
+    # Koefisien transmitansi
+    if abs(denominator) < 1e-12:
+        t = 0
     else:
-        r_total = numerator / denominator
-        t_total = 2 * eta_0 / denominator
+        t = 2 * eta_0 / denominator
     
-    # Hitung R dan T
-    R = np.abs(r_total) ** 2
+    # Reflektansi
+    R = np.abs(r) ** 2
     
-    # Transmitansi dengan koreksi impedansi
-    if abs(eta_0) < 1e-10:
-        T = 0
-    else:
-        T = np.abs(t_total) ** 2 * (eta_s / eta_0).real
+    # Transmitansi (dengan koreksi impedansi untuk konservasi energi)
+    T = np.abs(t) ** 2 * (eta_s.real / eta_0.real) if eta_0.real > 0 else 0
     
-    # Normalisasi dan batasi
-    R = max(0, min(1, R))
-    T = max(0, min(1, T))
+    # === NORMALISASI UNTUK KONSERVASI ENERGI ===
+    # Pastikan T + R <= 1
+    total = T + R
+    
+    if total > 1.0:
+        # Normalisasi proporsional
+        scale = 1.0 / total
+        T = T * scale
+        R = R * scale
+    
+    # Batasi nilai antara 0 dan 1
+    T = max(0.0, min(1.0, T.real))
+    R = max(0.0, min(1.0, R.real))
     
     return T, R
 
