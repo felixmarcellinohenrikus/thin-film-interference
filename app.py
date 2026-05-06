@@ -170,81 +170,131 @@ def calculate_reflection_coefficient(n1, n2, theta_incident, polarization='s'):
     
     return r ** 2
 
-def calculate_transmittance_reflectance_multilayer(layers, thicknesses, wavelength, theta_incident=0):
+def calculate_transmittance_reflectance_multilayer(layers, thicknesses, wavelength_nm, theta_incident=0):
     """
     Menghitung transmitansi dan reflektansi untuk multilayer thin film
     menggunakan metode Transfer Matrix yang benar
+    
+    Parameters:
+    -----------
+    layers : list of float
+        Indeks bias setiap layer [n0, n1, n2, ..., ns]
+    thicknesses : list of float
+        Ketebalan setiap layer dalam mm (kecuali substrate)
+    wavelength_nm : float
+        Panjang gelombang dalam nm
+    theta_incident : float
+        Sudut datang dalam derajat
+        
+    Returns:
+    --------
+    T, R : float
+        Transmitansi dan Reflektansi
     """
-    wavelength_m = wavelength * 1e-9  # nm ke meter
-    thicknesses_m = [t * 1e-3 for t in thicknesses]  # mm ke meter
     
-    n_0 = layers[0]  # Medium awal
-    n_s = layers[-1]  # Substrat
+    # Konversi satuan
+    wavelength_m = wavelength_nm * 1e-9  # nm → meter
+    theta_0 = np.radians(theta_incident)  # derajat → radian
     
-    theta_0 = np.radians(theta_incident)
-    
-    # Hitung sudut di setiap layer menggunakan Snell's law
-    thetas = [theta_0]
-    for i in range(1, len(layers)):
+    # Hitung sudut di setiap layer (Snell's law)
+    n_0 = layers[0]
+    thetas = []
+    for n_j in layers:
         try:
-            theta_i = np.arcsin(n_0 * np.sin(theta_0) / layers[i])
-            thetas.append(theta_i)
+            theta_j = np.arcsin(n_0 * np.sin(theta_0) / n_j)
+            thetas.append(theta_j)
         except:
             thetas.append(0)  # Total internal reflection
     
-    # Build transfer matrix
-    M = np.array([[1, 0], [0, 1]], dtype=complex)
+    # Inisialisasi matriks transfer total
+    M_total = np.array([[1, 0], [0, 1]], dtype=complex)
     
-    for i in range(len(layers) - 1):
-        n_i = layers[i]
-        n_ip1 = layers[i + 1]
-        theta_i = thetas[i]
-        theta_ip1 = thetas[i + 1]
+    # Proses setiap layer (kecuali substrate terakhir)
+    for j in range(len(layers) - 1):
+        n_j = layers[j]
+        n_j1 = layers[j + 1]
+        theta_j = thetas[j]
+        theta_j1 = thetas[j + 1]
         
-        # Koefisien Fresnel untuk polarisasi s (TE)
-        r_s = (n_i * np.cos(theta_i) - n_ip1 * np.cos(theta_ip1)) / \
-              (n_i * np.cos(theta_i) + n_ip1 * np.cos(theta_ip1))
-        t_s = (2 * n_i * np.cos(theta_i)) / \
-              (n_i * np.cos(theta_i) + n_ip1 * np.cos(theta_ip1))
-        
-        # Phase shift untuk layer ini
-        if i < len(thicknesses_m):
-            d = thicknesses_m[i]
-            delta = 2 * np.pi * n_ip1 * d * np.cos(theta_ip1) / wavelength_m
+        # Dapatkan ketebalan layer j (dalam meter)
+        if j < len(thicknesses):
+            d_j_m = thicknesses[j] * 1e-3  # mm → meter
         else:
-            delta = 0
+            d_j_m = 0
         
-        # Characteristic matrix untuk layer ini
-        if delta != 0:
-            m_11 = np.cos(delta)
-            m_12 = 1j * np.sin(delta) / (n_ip1 * np.cos(theta_ip1))
-            m_21 = 1j * n_ip1 * np.cos(theta_ip1) * np.sin(delta)
-            m_22 = np.cos(delta)
+        # Hitung phase shift untuk layer ini
+        # δ = (2π/λ) * n * d * cos(θ)
+        delta_j = (2 * np.pi / wavelength_m) * n_j1 * d_j_m * np.cos(theta_j1)
+        
+        # Koefisien Fresnel untuk interface j→j+1 (s-polarization)
+        # r_s = (n_j cos θ_j - n_j+1 cos θ_j+1) / (n_j cos θ_j + n_j+1 cos θ_j+1)
+        numerator = n_j * np.cos(theta_j) - n_j1 * np.cos(theta_j1)
+        denominator = n_j * np.cos(theta_j) + n_j1 * np.cos(theta_j1)
+        
+        if abs(denominator) < 1e-10:
+            r_j = 0
+            t_j = 1
         else:
-            m_11, m_12, m_21, m_22 = 1, 0, 0, 1
+            r_j = numerator / denominator
+            t_j = 2 * n_j * np.cos(theta_j) / denominator
         
-        M_layer = np.array([[m_11, m_12], [m_21, m_22]])
-        M = M @ M_layer
+        # Matriks interface
+        if abs(t_j) < 1e-10:
+            M_interface = np.array([[1, r_j], [r_j, 1]], dtype=complex)
+        else:
+            M_interface = np.array([[1, r_j], [r_j, 1]], dtype=complex) / t_j
+        
+        # Matriks propagasi melalui layer
+        if d_j_m > 0:
+            M_propagation = np.array([
+                [np.exp(-1j * delta_j), 0],
+                [0, np.exp(1j * delta_j)]
+            ], dtype=complex)
+        else:
+            M_propagation = np.array([[1, 0], [0, 1]], dtype=complex)
+        
+        # Gabungkan matriks untuk layer ini
+        M_layer = M_interface @ M_propagation
+        M_total = M_total @ M_layer
     
-    # Koefisien refleksi dan transmitansi
-    n_incident = n_0 * np.cos(theta_0)
-    n_exit = n_s * np.cos(thetas[-1])
+    # Hitung koefisien refleksi dan transmitansi total
+    n_incident = layers[0]
+    n_exit = layers[-1]
+    theta_exit = thetas[-1]
     
-    r = (M[0, 0] * n_incident + M[0, 1] * n_incident * n_exit - 
-         M[1, 0] - M[1, 1] * n_exit) / \
-        (M[0, 0] * n_incident + M[0, 1] * n_incident * n_exit + 
-         M[1, 0] + M[1, 1] * n_exit)
+    # Untuk normal incidence (θ = 0)
+    if abs(theta_0) < 1e-10:
+        eta_0 = n_incident
+        eta_s = n_exit
+    else:
+        # Untuk s-polarization
+        eta_0 = n_incident * np.cos(theta_0)
+        eta_s = n_exit * np.cos(theta_exit)
     
-    t = 2 * n_incident / \
-        (M[0, 0] * n_incident + M[0, 1] * n_incident * n_exit + 
-         M[1, 0] + M[1, 1] * n_exit)
+    # Koefisien refleksi dari matriks total
+    # r = (M11 + M12*ηs)*η0 - (M21 + M22*ηs) / (M11 + M12*ηs)*η0 + (M21 + M22*ηs)
+    numerator = (M_total[0, 0] + M_total[0, 1] * eta_s) * eta_0 - (M_total[1, 0] + M_total[1, 1] * eta_s)
+    denominator = (M_total[0, 0] + M_total[0, 1] * eta_s) * eta_0 + (M_total[1, 0] + M_total[1, 1] * eta_s)
     
-    R = np.abs(r) ** 2
-    T = np.abs(t) ** 2 * (n_exit / n_incident)
+    if abs(denominator) < 1e-10:
+        r_total = 0
+        t_total = 0
+    else:
+        r_total = numerator / denominator
+        t_total = 2 * eta_0 / denominator
     
-    # Normalisasi
-    T = min(T, 1.0)
-    R = min(R, 1.0)
+    # Hitung R dan T
+    R = np.abs(r_total) ** 2
+    
+    # Transmitansi dengan koreksi impedansi
+    if abs(eta_0) < 1e-10:
+        T = 0
+    else:
+        T = np.abs(t_total) ** 2 * (eta_s / eta_0).real
+    
+    # Normalisasi dan batasi
+    R = max(0, min(1, R))
+    T = max(0, min(1, T))
     
     return T, R
 
